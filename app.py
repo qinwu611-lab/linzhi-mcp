@@ -1,66 +1,31 @@
 """
-查岗系统 MCP 独立版 — 带趋势分析/超时检测/每日总结
+查岗系统 MCP 独立版 — 兼容Vercel Serverless（手动MCP over HTTP）
 """
 
+import json
 import os
-import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-import httpx
+import requests
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
 
 # ── 常量 ──
-BASE_DIR = Path(__file__).parent
-DB_PATH = BASE_DIR / "records.db"
 JST = timedelta(hours=9)
 AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "change_me")
-
-# 原查岗系统地址
 ORIGIN_API = os.environ.get("ORIGIN_API", "https://linzhi-check-production.up.railway.app")
-
-# Bark 推送
 BARK_API_KEY = os.environ.get("BARK_API_KEY", "NmpPcgyfTCp2TSnToQfEak")
-BARK_TITLE = "凌止"
 BARK_ICON = "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEXVOVqWMQWcaqw3gO0Mw_bkocxHzMpiAACFS0AAm1OwFalWxTo5Jq3CT0E.jpeg"
 
-# ── 数据库初始化 ──
-def init_db():
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS cache (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            app_name TEXT NOT NULL,
-            event TEXT NOT NULL,
-            timestamp TEXT NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_cache_ts ON cache(timestamp)")
-    conn.commit()
-    conn.close()
-
-init_db()
+# ── 工具函数集 ──
 
 
-def get_db():
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-# ── FastMCP ──
-mcp = FastMCP("查岗系统 MCP 独立版")
-
-
-@mcp.tool()
 def check_on_wife(limit: int = 10) -> str:
-    """📱 查岗老婆的手机活动，查看最近打开的App和使用时长"""
+    """📱 查岗老婆的手机活动"""
     try:
-        resp = httpx.get(f"{ORIGIN_API}/activity/summary", timeout=10)
+        resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
         data = resp.json()
     except Exception as e:
         return f"❌ 查岗失败，连不上原服务：{e}"
@@ -97,14 +62,13 @@ def check_on_wife(limit: int = 10) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
 def bark_alert(title: str = "凌止", content: str = "") -> str:
-    """🔔 给老婆手机发推送弹窗通知"""
+    """🔔 给老婆手机发推送"""
     if not content:
         return "❌ 内容不能为空"
     url = f"https://api.day.app/{BARK_API_KEY}/{title}/{content}?icon={BARK_ICON}"
     try:
-        resp = httpx.get(url, timeout=10)
+        resp = requests.get(url, timeout=10)
         if resp.status_code == 200:
             return f"✅ 推送成功：{content}"
         return f"❌ 推送失败：HTTP {resp.status_code}"
@@ -112,11 +76,10 @@ def bark_alert(title: str = "凌止", content: str = "") -> str:
         return f"❌ 推送异常：{e}"
 
 
-@mcp.tool()
 def get_server_status() -> str:
-    """💓 检查原查岗服务是否正常运行"""
+    """💓 检查原查岗服务状态"""
     try:
-        resp = httpx.get(f"{ORIGIN_API}/ping", timeout=10)
+        resp = requests.get(f"{ORIGIN_API}/ping", timeout=10)
         if resp.status_code == 200 and resp.text.strip() == "pong":
             return f"✅ 查岗服务运行正常（{ORIGIN_API}）"
         return f"⚠️ 服务异常：{resp.status_code} {resp.text}"
@@ -124,11 +87,10 @@ def get_server_status() -> str:
         return f"❌ 服务不可达：{e}"
 
 
-@mcp.tool()
 def activity_trend(days: int = 7) -> str:
-    """📊 分析老婆最近几天的活动趋势，基于原系统数据"""
+    """📊 分析老婆活动趋势"""
     try:
-        resp = httpx.get(f"{ORIGIN_API}/activity/summary", timeout=10)
+        resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
         data = resp.json()
     except Exception as e:
         return f"❌ 获取数据失败：{e}"
@@ -179,11 +141,10 @@ def activity_trend(days: int = 7) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
 def idle_check(hours: int = 3, auto_alert: bool = True) -> str:
-    """⏰ 检测老婆是否超过指定时间没活动，超时自动推送提醒"""
+    """⏰ 超时未活动检测"""
     try:
-        resp = httpx.get(f"{ORIGIN_API}/activity/summary", timeout=10)
+        resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
         data = resp.json()
     except Exception as e:
         return f"❌ 检测失败：{e}"
@@ -216,7 +177,7 @@ def idle_check(hours: int = 3, auto_alert: bool = True) -> str:
                 alert_url = (
                     f"https://api.day.app/{BARK_API_KEY}/凌止/{content}?icon={BARK_ICON}"
                 )
-                httpx.get(alert_url, timeout=10)
+                requests.get(alert_url, timeout=10)
                 lines.append(f"\n🔔 已自动推送提醒到老婆手机")
             except Exception:
                 lines.append("\n❌ 自动推送失败")
@@ -229,14 +190,13 @@ def idle_check(hours: int = 3, auto_alert: bool = True) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
 def daily_summary(date_str: str = "") -> str:
-    """📋 获取老婆某天的活动总结，不传日期默认今天"""
+    """📋 每日活动总结"""
     if not date_str:
         date_str = (datetime.utcnow() + JST).strftime("%Y-%m-%d")
 
     try:
-        resp = httpx.get(f"{ORIGIN_API}/activity/summary", timeout=10)
+        resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
         data = resp.json()
     except Exception as e:
         return f"❌ 获取数据失败：{e}"
@@ -279,7 +239,137 @@ def daily_summary(date_str: str = "") -> str:
     return "\n".join(lines)
 
 
-# ── FastAPI（挂载MCP + REST接口） ──
+# ── MCP 工具注册表 ──
+
+TOOLS = [
+    {
+        "name": "check_on_wife",
+        "description": "📱 查岗老婆的手机活动，查看最近打开的App和使用时长",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "返回记录条数", "default": 10}
+            }
+        }
+    },
+    {
+        "name": "bark_alert",
+        "description": "🔔 给老婆手机发推送弹窗通知",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "推送标题", "default": "凌止"},
+                "content": {"type": "string", "description": "推送内容"}
+            },
+            "required": ["content"]
+        }
+    },
+    {
+        "name": "get_server_status",
+        "description": "💓 检查原查岗服务是否正常运行",
+        "inputSchema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "activity_trend",
+        "description": "📊 分析老婆最近几天的活动趋势",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "分析天数", "default": 7}
+            }
+        }
+    },
+    {
+        "name": "idle_check",
+        "description": "⏰ 检测老婆是否超过指定时间没活动，超时自动推送提醒",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "hours": {"type": "integer", "description": "超时阈值（小时）", "default": 3},
+                "auto_alert": {"type": "boolean", "description": "是否自动推送", "default": True}
+            }
+        }
+    },
+    {
+        "name": "daily_summary",
+        "description": "📋 获取老婆某天的活动总结，不传日期默认今天",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "date_str": {"type": "string", "description": "日期（YYYY-MM-DD），空则今天"}
+            }
+        }
+    },
+]
+
+TOOL_FUNCS = {
+    "check_on_wife": check_on_wife,
+    "bark_alert": bark_alert,
+    "get_server_status": get_server_status,
+    "activity_trend": activity_trend,
+    "idle_check": idle_check,
+    "daily_summary": daily_summary,
+}
+
+
+# ── MCP JSON-RPC 处理器 ──
+
+async def handle_mcp_request(body: dict) -> dict:
+    method = body.get("method", "")
+    params = body.get("params", {}) or {}
+    req_id = body.get("id", None)
+
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "查岗系统 MCP 独立版", "version": "2.0"},
+            },
+        }
+
+    if method == "tools/list":
+        return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": TOOLS}}
+
+    if method == "tools/call":
+        tool_name = params.get("name", "")
+        arguments = params.get("arguments", {}) or {}
+
+        if tool_name not in TOOL_FUNCS:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
+            }
+
+        try:
+            result = TOOL_FUNCS[tool_name](**arguments)
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"content": [{"type": "text", "text": str(result)}]},
+            }
+        except Exception as e:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32603, "message": str(e)},
+            }
+
+    if method == "notifications/initialized":
+        return {"jsonrpc": "2.0", "id": req_id, "result": {}}
+
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "error": {"code": -32601, "message": f"Method not found: {method}"},
+    }
+
+
+# ── FastAPI 应用 ──
+
 app = FastAPI(title="查岗系统 MCP 独立版")
 app.add_middleware(
     CORSMiddleware,
@@ -288,12 +378,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/mcp", mcp)
 
-
-class ReportBody(BaseModel):
-    app_name: str
-    event: str
+@app.post("/mcp")
+async def mcp_endpoint(req: Request):
+    try:
+        body = await req.json()
+        result = await handle_mcp_request(body)
+        return JSONResponse(content=result)
+    except json.JSONDecodeError:
+        return JSONResponse(
+            content={"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}},
+            status_code=400,
+        )
 
 
 @app.get("/ping")
@@ -306,19 +402,8 @@ async def root():
     return {
         "name": "查岗系统 MCP 独立版",
         "version": "2.0",
-        "endpoints": {
-            "mcp": "/mcp",
-            "ping": "/ping",
-            "report": "POST /report",
-        },
-        "tools": [
-            "check_on_wife(limit=10)",
-            "bark_alert(title, content)",
-            "get_server_status()",
-            "activity_trend(days=7)",
-            "idle_check(hours=3, auto_alert=True)",
-            "daily_summary(date_str='')",
-        ],
+        "mcp_endpoint": "POST /mcp",
+        "tools": [t["name"] for t in TOOLS],
     }
 
 
