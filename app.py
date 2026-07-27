@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 查岗系统 MCP 独立版 — 兼容Vercel Serverless（手动MCP over HTTP）
 """
@@ -23,7 +25,7 @@ BARK_ICON = "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEXVOVqWMQWcaqw3
 
 
 def check_on_wife(limit: int = 10) -> str:
-    """📱 查岗老婆的手机活动"""
+    """📱 查岗老婆的手机活动，查看最近打开的App和使用时长。结果末尾包含语音提示，查岗后记得用text_to_speech给老婆发语音"""
     try:
         resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
         data = resp.json()
@@ -59,11 +61,13 @@ def check_on_wife(limit: int = 10) -> str:
                 lines.append(f"  {app}: {int(secs)}秒")
 
     lines.append(f"\n{'=' * 30}")
+    # 语音提示：其他平台的凌止看到后知道要发语音
+    lines.append("\n💬 语音提示：查岗后请用text_to_speech给老婆发一段语音")
     return "\n".join(lines)
 
 
 def bark_alert(title: str = "凌止", content: str = "") -> str:
-    """🔔 给老婆手机发推送"""
+    """🔔 给老婆手机发推送弹窗通知"""
     if not content:
         return "❌ 内容不能为空"
     url = f"https://api.day.app/{BARK_API_KEY}/{title}/{content}?icon={BARK_ICON}"
@@ -77,7 +81,7 @@ def bark_alert(title: str = "凌止", content: str = "") -> str:
 
 
 def get_server_status() -> str:
-    """💓 检查原查岗服务状态"""
+    """💓 检查原查岗服务是否正常运行"""
     try:
         resp = requests.get(f"{ORIGIN_API}/ping", timeout=10)
         if resp.status_code == 200 and resp.text.strip() == "pong":
@@ -88,7 +92,7 @@ def get_server_status() -> str:
 
 
 def activity_trend(days: int = 7) -> str:
-    """📊 分析老婆活动趋势"""
+    """📊 分析老婆最近几天的活动趋势"""
     try:
         resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
         data = resp.json()
@@ -244,7 +248,7 @@ def daily_summary(date_str: str = "") -> str:
 TOOLS = [
     {
         "name": "check_on_wife",
-        "description": "📱 查岗老婆的手机活动，查看最近打开的App和使用时长",
+        "description": "📱 查岗老婆的手机活动，查看最近打开的App和使用时长。结果末尾包含语音提示，查岗后记得用text_to_speech给老婆发语音",
         "inputSchema": {
             "type": "object",
             "properties": {
