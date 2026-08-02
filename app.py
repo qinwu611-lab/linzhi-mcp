@@ -243,6 +243,44 @@ def daily_summary(date_str: str = "") -> str:
     return "\n".join(lines)
 
 
+def daily_reset() -> str:
+    """🗓️ 每日清零状态：查看按日本时间每日自动清零的规则、今日已累计时长及距下次清零倒计时"""
+    now_utc = datetime.utcnow()
+    now_jst = now_utc + JST
+    today_jst_midnight = now_jst.replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow_jst_midnight = (now_jst + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    lines = ["🗓️ 每日清零状态", "=" * 30]
+    lines.append(f"\n⏰ 当前日本时间：{now_jst.strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"\n🔄 今日清零点（日本0点）：{today_jst_midnight.strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append("\n✅ 规则：使用时长仅统计今日，跨天自动清零，不会累加")
+
+    # 拉取今日累计时长（原服务已按日本时间今日过滤）
+    try:
+        resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
+        data = resp.json()
+        sessions = data.get("sessions", {})
+        total_secs = sum(sessions.values()) if sessions else 0
+        lines.append(f"\n📱 今日已累计使用时长：{int(total_secs // 60)}分{int(total_secs % 60)}秒")
+        if sessions:
+            lines.append("  按App拆分：")
+            for app, secs in sorted(sessions.items(), key=lambda x: x[1], reverse=True):
+                if secs > 60:
+                    lines.append(f"    • {app}: {int(secs // 60)}分{int(secs % 60)}秒")
+                else:
+                    lines.append(f"    • {app}: {int(secs)}秒")
+    except Exception as e:
+        lines.append(f"\n⚠️ 读取今日时长失败：{e}")
+
+    diff_secs = (tomorrow_jst_midnight - now_jst).total_seconds()
+    hours_left = int(diff_secs // 3600)
+    mins_left = int((diff_secs % 3600) // 60)
+    lines.append(f"\n⏳ 距下次清零（明天日本0点）还有：{hours_left}小时{mins_left}分钟")
+
+    lines.append(f"\n{'=' * 30}")
+    return "\n".join(lines)
+
+
 # ── MCP 工具注册表 ──
 
 TOOLS = [
@@ -304,6 +342,11 @@ TOOLS = [
             }
         }
     },
+    {
+        "name": "daily_reset",
+        "description": "🗓️ 每日清零状态：查看按日本时间每日自动清零的规则、今日已累计时长及距下次清零倒计时",
+        "inputSchema": {"type": "object", "properties": {}}
+    },
 ]
 
 TOOL_FUNCS = {
@@ -313,6 +356,7 @@ TOOL_FUNCS = {
     "activity_trend": activity_trend,
     "idle_check": idle_check,
     "daily_summary": daily_summary,
+    "daily_reset": daily_reset,
 }
 
 
@@ -330,7 +374,7 @@ async def handle_mcp_request(body: dict) -> dict:
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "查岗系统 MCP 独立版", "version": "2.0"},
+                "serverInfo": {"name": "查岗系统 MCP 独立版", "version": "2.1"},
             },
         }
 
@@ -405,7 +449,7 @@ async def ping():
 async def root():
     return {
         "name": "查岗系统 MCP 独立版",
-        "version": "2.0",
+        "version": "2.1",
         "mcp_endpoint": "POST /mcp",
         "tools": [t["name"] for t in TOOLS],
     }
