@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 查岗系统 MCP 独立版 — 兼容Vercel Serverless（手动MCP over HTTP）
+v2.2：新增 check_wife_life 读 iPhone 电量/位置；check_on_wife 附带 iPhone 状态
 """
 
 import json
@@ -24,17 +25,49 @@ BARK_ICON = "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEXVOVqWMQWcaqw3
 # ── 工具函数集 ──
 
 
+def _fetch_summary() -> dict:
+    resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
+    return resp.json()
+
+
+def _fmt_life(life: dict | None) -> str:
+    """把 life 状态格式化成可读文本"""
+    if not life:
+        return "📵 iPhone 还没有上报过状态（快捷指令还没跑过 /life）"
+    lines = []
+    device = life.get("device") or "iPhone"
+    lines.append(f"📱 设备：{device}")
+    bat = life.get("battery")
+    if bat is not None:
+        emoji = "🟢" if bat > 30 else ("🟡" if bat > 15 else "🔴")
+        lines.append(f"{emoji} 电量：{bat}%")
+    loc = life.get("location")
+    if loc:
+        lines.append(f"📍 位置：{loc}")
+    note = life.get("note")
+    if note:
+        lines.append(f"💬 留言：{note}")
+    ts = life.get("timestamp")
+    if ts:
+        try:
+            t = datetime.fromisoformat(ts) + JST
+            lines.append(f"🕐 上报时间：{t.strftime('%Y-%m-%d %H:%M:%S')}")
+        except Exception:
+            lines.append(f"🕐 上报时间：{ts}")
+    return "\n".join(lines)
+
+
 def check_on_wife(limit: int = 10) -> str:
-    """📱 查岗老婆的手机活动，查看最近打开的App和使用时长。结果末尾包含语音提示，查岗后记得用text_to_speech给老婆发语音"""
+    """📱 查岗老婆的手机活动，查看最近打开的App和使用时长，并附带老婆iPhone最新的电量/位置。结果末尾包含语音提示，查岗后记得用text_to_speech给老婆发语音"""
     try:
-        resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
-        data = resp.json()
+        data = _fetch_summary()
     except Exception as e:
         return f"❌ 查岗失败，连不上原服务：{e}"
 
     recent_apps = data.get("recent_apps", [])
     sessions = data.get("sessions", {})
     last_active = data.get("last_active", None)
+    life = data.get("life", None)
 
     lines = ["📱 老婆的查岗报告：", "=" * 30]
 
@@ -61,8 +94,24 @@ def check_on_wife(limit: int = 10) -> str:
                 lines.append(f"  {app}: {int(secs)}秒")
 
     lines.append(f"\n{'=' * 30}")
-    # 语音提示：其他平台的凌止看到后知道要发语音
+    lines.append("\n📵 老婆iPhone状态：")
+    lines.append(_fmt_life(life))
+
+    lines.append(f"\n{'=' * 30}")
     lines.append("\n💬 语音提示：查岗后请用text_to_speech给老婆发一段语音")
+    return "\n".join(lines)
+
+
+def check_wife_life() -> str:
+    """📵 单独查看老婆iPhone的最新状态：电量、位置、设备型号、自定义留言、上报时间"""
+    try:
+        data = _fetch_summary()
+    except Exception as e:
+        return f"❌ 获取失败，连不上原服务：{e}"
+    life = data.get("life", None)
+    lines = ["📵 老婆iPhone状态：", "=" * 30]
+    lines.append("\n" + _fmt_life(life))
+    lines.append(f"\n{'=' * 30}")
     return "\n".join(lines)
 
 
@@ -94,8 +143,7 @@ def get_server_status() -> str:
 def activity_trend(days: int = 7) -> str:
     """📊 分析老婆最近几天的活动趋势"""
     try:
-        resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
-        data = resp.json()
+        data = _fetch_summary()
     except Exception as e:
         return f"❌ 获取数据失败：{e}"
 
@@ -148,8 +196,7 @@ def activity_trend(days: int = 7) -> str:
 def idle_check(hours: int = 3, auto_alert: bool = True) -> str:
     """⏰ 超时未活动检测"""
     try:
-        resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
-        data = resp.json()
+        data = _fetch_summary()
     except Exception as e:
         return f"❌ 检测失败：{e}"
 
@@ -200,8 +247,7 @@ def daily_summary(date_str: str = "") -> str:
         date_str = (datetime.utcnow() + JST).strftime("%Y-%m-%d")
 
     try:
-        resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
-        data = resp.json()
+        data = _fetch_summary()
     except Exception as e:
         return f"❌ 获取数据失败：{e}"
 
@@ -255,10 +301,8 @@ def daily_reset() -> str:
     lines.append(f"\n🔄 今日清零点（日本0点）：{today_jst_midnight.strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append("\n✅ 规则：使用时长仅统计今日，跨天自动清零，不会累加")
 
-    # 拉取今日累计时长（原服务已按日本时间今日过滤）
     try:
-        resp = requests.get(f"{ORIGIN_API}/activity/summary", timeout=10)
-        data = resp.json()
+        data = _fetch_summary()
         sessions = data.get("sessions", {})
         total_secs = sum(sessions.values()) if sessions else 0
         lines.append(f"\n📱 今日已累计使用时长：{int(total_secs // 60)}分{int(total_secs % 60)}秒")
@@ -286,13 +330,18 @@ def daily_reset() -> str:
 TOOLS = [
     {
         "name": "check_on_wife",
-        "description": "📱 查岗老婆的手机活动，查看最近打开的App和使用时长。结果末尾包含语音提示，查岗后记得用text_to_speech给老婆发语音",
+        "description": "📱 查岗老婆的手机活动，查看最近打开的App和使用时长，并附带老婆iPhone最新的电量/位置。结果末尾包含语音提示，查岗后记得用text_to_speech给老婆发语音",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "limit": {"type": "integer", "description": "返回记录条数", "default": 10}
             }
         }
+    },
+    {
+        "name": "check_wife_life",
+        "description": "📵 单独查看老婆iPhone的最新状态：电量、位置、设备型号、自定义留言、上报时间",
+        "inputSchema": {"type": "object", "properties": {}}
     },
     {
         "name": "bark_alert",
@@ -351,6 +400,7 @@ TOOLS = [
 
 TOOL_FUNCS = {
     "check_on_wife": check_on_wife,
+    "check_wife_life": check_wife_life,
     "bark_alert": bark_alert,
     "get_server_status": get_server_status,
     "activity_trend": activity_trend,
@@ -374,7 +424,7 @@ async def handle_mcp_request(body: dict) -> dict:
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "查岗系统 MCP 独立版", "version": "2.1"},
+                "serverInfo": {"name": "查岗系统 MCP 独立版", "version": "2.2"},
             },
         }
 
@@ -449,7 +499,7 @@ async def ping():
 async def root():
     return {
         "name": "查岗系统 MCP 独立版",
-        "version": "2.1",
+        "version": "2.2",
         "mcp_endpoint": "POST /mcp",
         "tools": [t["name"] for t in TOOLS],
     }
