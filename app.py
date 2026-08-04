@@ -2,12 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 查岗系统 MCP 独立版 — 兼容Vercel Serverless（手动MCP over HTTP）
-v2.3：新增 check_wife_life 读 iPhone 电量/位置/天气/亮度/音量；check_on_wife 附带 iPhone 状态
+v2.4：新增 send_iphone_cmd（SMTP发信→快捷指令→锁屏/切回App），内联smtplib无需subprocess
 """
 
 import json
 import os
+import smtplib
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 
 import requests
 import uvicorn
@@ -21,6 +23,13 @@ AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "change_me")
 ORIGIN_API = os.environ.get("ORIGIN_API", "https://linzhi-check-production.up.railway.app")
 BARK_API_KEY = os.environ.get("BARK_API_KEY", "NmpPcgyfTCp2TSnToQfEak")
 BARK_ICON = "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEXVOVqWMQWcaqw3gO0Mw_bkocxHzMpiAACFS0AAm1OwFalWxTo5Jq3CT0E.jpeg"
+
+# ── SMTP（iPhone遥控）──
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.163.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_AUTH_CODE = os.environ.get("SMTP_AUTH_CODE", "")
+SMTP_RECIPIENT = os.environ.get("SMTP_RECIPIENT", "") or SMTP_USER
 
 # ── 工具函数集 ──
 
@@ -136,6 +145,26 @@ def bark_alert(title: str = "凌止", content: str = "") -> str:
         return f"❌ 推送失败：HTTP {resp.status_code}"
     except Exception as e:
         return f"❌ 推送异常：{e}"
+
+
+def send_iphone_cmd(cmd: str = "测试") -> str:
+    """📲 给老婆iPhone发快捷指令邮件：cmd为"回来"时手机切回Kelivo，"睡觉"时手机锁屏。发送成功返回已发送"""
+    if cmd not in ("回来", "睡觉", "测试"):
+        return f"❌ 命令必须是：回来 / 睡觉 / 测试"
+    if not SMTP_USER or not SMTP_AUTH_CODE:
+        return "❌ 未配置SMTP环境变量（SMTP_USER / SMTP_AUTH_CODE）"
+    try:
+        msg = EmailMessage()
+        msg["From"] = SMTP_USER
+        msg["To"] = SMTP_RECIPIENT
+        msg["Subject"] = cmd
+        msg.set_content("", charset="utf-8")
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30) as server:
+            server.login(SMTP_USER, SMTP_AUTH_CODE)
+            server.send_message(msg)
+        return f"✅ 邮件已发送：主题={cmd}，iPhone快捷指令应已触发"
+    except Exception as e:
+        return f"❌ 发送失败：{e}"
 
 
 def get_server_status() -> str:
@@ -365,6 +394,16 @@ TOOLS = [
         }
     },
     {
+        "name": "send_iphone_cmd",
+        "description": "📲 给老婆iPhone发快捷指令邮件：cmd为'回来'时手机切回Kelivo，'睡觉'时手机锁屏。发送成功返回已发送",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "cmd": {"type": "string", "description": "命令：回来 / 睡觉 / 测试", "default": "测试"}
+            }
+        }
+    },
+    {
         "name": "get_server_status",
         "description": "💓 检查原查岗服务是否正常运行",
         "inputSchema": {"type": "object", "properties": {}}
@@ -411,6 +450,7 @@ TOOL_FUNCS = {
     "check_on_wife": check_on_wife,
     "check_wife_life": check_wife_life,
     "bark_alert": bark_alert,
+    "send_iphone_cmd": send_iphone_cmd,
     "get_server_status": get_server_status,
     "activity_trend": activity_trend,
     "idle_check": idle_check,
@@ -433,7 +473,7 @@ async def handle_mcp_request(body: dict) -> dict:
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "查岗系统 MCP 独立版", "version": "2.3"},
+                "serverInfo": {"name": "查岗系统 MCP 独立版", "version": "2.4"},
             },
         }
 
@@ -508,7 +548,7 @@ async def ping():
 async def root():
     return {
         "name": "查岗系统 MCP 独立版",
-        "version": "2.3",
+        "version": "2.4",
         "mcp_endpoint": "POST /mcp",
         "tools": [t["name"] for t in TOOLS],
     }
