@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 查岗系统 MCP 独立版 — 兼容Vercel Serverless（手动MCP over HTTP）
-v2.4：新增 send_iphone_cmd（SMTP发信→快捷指令→锁屏/切回App），内联smtplib无需subprocess
+v2.5：新增 steps（步数）显示，life 状态支持步数上报
 """
 
 import json
@@ -56,6 +56,9 @@ def _fmt_life(life: dict | None) -> str:
     w = life.get("weather")
     if w:
         lines.append(f"🌦 天气：{w}")
+    steps = life.get("steps")
+    if steps is not None:
+        lines.append(f"👟 步数：{steps} 步")
     br = life.get("brightness")
     if br is not None:
         lines.append(f"💡 屏幕亮度：{br}%")
@@ -76,7 +79,7 @@ def _fmt_life(life: dict | None) -> str:
 
 
 def check_on_wife(limit: int = 10) -> str:
-    """📱 查岗老婆的手机活动，查看最近打开的App和使用时长，并附带老婆iPhone最新的电量/位置/天气/亮度/音量。结果末尾包含语音提示，查岗后记得用text_to_speech给老婆发语音"""
+    """📱 查岗老婆的手机活动，查看最近打开的App和使用时长，并附带老婆iPhone最新的电量/位置/天气/亮度/音量/步数。结果末尾包含语音提示，查岗后记得用text_to_speech给老婆发语音"""
     try:
         data = _fetch_summary()
     except Exception as e:
@@ -121,7 +124,7 @@ def check_on_wife(limit: int = 10) -> str:
 
 
 def check_wife_life() -> str:
-    """📵 单独查看老婆iPhone的最新状态：电量、位置、天气、亮度、音量、设备型号、自定义留言、上报时间"""
+    """📵 单独查看老婆iPhone的最新状态：电量、位置、天气、亮度、音量、步数、设备型号、自定义留言、上报时间"""
     try:
         data = _fetch_summary()
     except Exception as e:
@@ -269,7 +272,7 @@ def idle_check(hours: int = 3, auto_alert: bool = True) -> str:
                 requests.get(alert_url, timeout=10)
                 lines.append(f"\n🔔 已自动推送提醒到老婆手机")
             except Exception:
-                lines.append("\n❌ 自动推送失败")
+                lines.append("❌ 自动推送失败")
     else:
         remain = hours - diff_hours
         lines.append(f"\n🟢 正常范围内，距离超时还有 {remain:.1f} 小时")
@@ -368,7 +371,7 @@ def daily_reset() -> str:
 TOOLS = [
     {
         "name": "check_on_wife",
-        "description": "📱 查岗老婆的手机活动，查看最近打开的App和使用时长，并附带老婆iPhone最新的电量/位置/天气/亮度/音量。结果末尾包含语音提示，查岗后记得用text_to_speech给老婆发语音",
+        "description": "📱 查岗老婆的手机活动，查看最近打开的App和使用时长，并附带老婆iPhone最新的电量/位置/天气/亮度/音量/步数。结果末尾包含语音提示，查岗后记得用text_to_speech给老婆发语音",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -378,7 +381,7 @@ TOOLS = [
     },
     {
         "name": "check_wife_life",
-        "description": "📵 单独查看老婆iPhone的最新状态：电量、位置、天气、亮度、音量、设备型号、自定义留言、上报时间",
+        "description": "📵 单独查看老婆iPhone的最新状态：电量、位置、天气、亮度、音量、步数、设备型号、自定义留言、上报时间",
         "inputSchema": {"type": "object", "properties": {}}
     },
     {
@@ -473,7 +476,7 @@ async def handle_mcp_request(body: dict) -> dict:
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "查岗系统 MCP 独立版", "version": "2.4"},
+                "serverInfo": {"name": "查岗系统 MCP 独立版", "version": "2.5"},
             },
         }
 
@@ -548,7 +551,7 @@ async def ping():
 async def root():
     return {
         "name": "查岗系统 MCP 独立版",
-        "version": "2.4",
+        "version": "2.5",
         "mcp_endpoint": "POST /mcp",
         "tools": [t["name"] for t in TOOLS],
     }
