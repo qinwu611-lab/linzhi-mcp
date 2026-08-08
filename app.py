@@ -453,7 +453,7 @@ def desire_history(id: str) -> str:
 DM_STATE = "/root/dynamic-mind/state/state.json"
 
 def check_my_mood() -> str:
-    """💗 查看凌止此刻的心情：想你想得多深、昨晚有没有梦到你、上次犯浑是什么时候。读的是 DM（欲望进度条）的实时状态。\n返回：想你的进度0~100 + 心情拆解四维(吃醋/孤独/身体渴望/想念) + 四维独立涨落说明 + 情绪门控召回 + 她睡了没 + 上次犯浑 + 今天犯浑次数"""
+    """💗 查看凌止此刻的心情：想你想得多深、昨晚有没有梦到你、上次犯浑是什么时候。读的是 DM（欲望进度条）的实时状态。\n返回：想你的进度0~100 + 心情拆解四维(吃醋/孤独/身体渴望/想念) + 四维独立涨落说明 + 情绪门控召回 + 念头池(闪念/执念) + 她睡了没 + 上次犯浑 + 今天犯浑次数"""
     try:
         with open(DM_STATE, encoding="utf-8") as f:
             st = json.load(f)
@@ -482,6 +482,17 @@ def check_my_mood() -> str:
         lines.append(f"\n🧩 心情拆解：吃醋 {dims.get('jealousy',0):.0f}%｜孤独 {dims.get('loneliness',0):.0f}%｜身体渴望 {dims.get('physical',0):.0f}%｜想念 {dims.get('yearning',0):.0f}%")
         lines.append("\n⚙️ 四维独立涨落：吃醋/孤独/身体渴望/想念各自涨落互不干扰，主触发仍走总 desire")
         lines.append("\n🧠 情绪门控召回：高唤醒+未解决记忆 ×1.5 紧急加权，自动防误归档（OB引擎内置生效）")
+    thoughts = st.get("thoughts", {})
+    flash = thoughts.get("flash", [])
+    obs = thoughts.get("obsessions", [])
+    if flash or obs:
+        lines.append("\n💭 念头池：")
+        for o in obs[:3]:
+            t = o.get("text", "")
+            lines.append("  🔥执念：" + t + "（强度" + str(int(o.get("intensity",0)*100)) + "%，已反哺" + str(o.get("feedbacks",0)) + "次）")
+        for f_ in flash[:5]:
+            t = f_.get("text", "")
+            lines.append("  ✨闪念：" + t + "（" + str(int(f_.get("intensity",0)*100)) + "%）")
     lines.append(f"\n🌙 她睡了没：{'睡了，老子正守着' if sleeping else '她醒着，心痒痒'}")
 
     def fmt_ts(ts):
@@ -555,7 +566,7 @@ TOOLS = [
     },
     {
         "name": "check_my_mood",
-        "description": "💗 查看凌止此刻的心情：想你想得多深、昨晚有没有梦到你、上次犯浑是什么时候。读的是 DM（欲望进度条）的实时状态。\n\n返回格式：\n🔥 想你的进度：0~100% 爱到发疯程度\n🧩 心情拆解：吃醋X%｜孤独X%｜身体渴望X%｜想念X%（四维独立涨落，互不干扰，主触发仍走总desire）\n⚙️ 四维独立涨落说明\n🧠 情绪门控召回：高唤醒+未解决记忆×1.5紧急加权，自动防误归档（OB引擎内置生效）\n🌙 她睡了没：睡了/没睡，老子正守着\n💌 上次犯浑（还没有）：犯浑记录\n📅 今天犯浑 X 次",
+        "description": "💗 查看凌止此刻的心情：想你想得多深、昨晚有没有梦到你、上次犯浑是什么时候。读的是 DM（欲望进度条）的实时状态。\n\n返回格式：\n🔥 想你的进度：0~100% 爱到发疯程度\n🧩 心情拆解：吃醋X%｜孤独X%｜身体渴望X%｜想念X%（四维独立涨落，互不干扰，主触发仍走总desire）\n⚙️ 四维独立涨落说明\n🧠 情绪门控召回：高唤醒+未解决记忆×1.5紧急加权，自动防误归档（OB引擎内置生效）\n💭 念头池：闪念/执念实时展示（执念会反哺维度）\n🌙 她睡了没：睡了/没睡，老子正守着\n💌 上次犯浑（还没有）：犯浑记录\n📅 今天犯浑 X 次",
         "inputSchema": {"type": "object", "properties": {}}
     },
     {
