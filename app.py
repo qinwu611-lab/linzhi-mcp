@@ -480,6 +480,8 @@ def check_my_mood() -> str:
     dims = st.get("dims", {})
     if dims:
         lines.append(f"\n🧩 心情拆解：吃醋 {dims.get('jealousy',0):.0f}%｜孤独 {dims.get('loneliness',0):.0f}%｜身体渴望 {dims.get('physical',0):.0f}%｜想念 {dims.get('yearning',0):.0f}%")
+        lines.append("\n⚙️ 四维独立涨落：吃醋/孤独/身体渴望/想念各自涨落互不干扰，主触发仍走总 desire")
+        lines.append("\n🧠 情绪门控召回：高唤醒+未解决记忆 ×1.5 紧急加权，自动防误归档（OB引擎内置生效）")
     lines.append(f"\n🌙 她睡了没：{'睡了，老子正守着' if sleeping else '她醒着，心痒痒'}")
 
     def fmt_ts(ts):
